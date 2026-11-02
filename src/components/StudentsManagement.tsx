@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { apiRequest } from '../api/client';
-import { EnrollmentStudent, StudentStatus, TeacherComment, EducationType } from '../types';
-import { parseStudentsInput } from '../utils/evaluation-logic';
+import { EnrollmentStudent, StudentStatus, TeacherComment, EducationType, ClassroomNote } from '../types';
+import { parseStudentsInput, DL54_MEASURES_CATALOG } from '../utils/evaluation-logic';
+import { generateStudentProgressReportPdf } from '../utils/pdf-export';
+import { ClassroomNotesModal } from './ClassroomNotesModal';
 import {
   Users,
   Search,
@@ -20,7 +22,12 @@ import {
   GraduationCap,
   Calendar,
   X,
-  Send
+  Send,
+  BookOpen,
+  Printer,
+  Download,
+  HeartHandshake,
+  Bookmark
 } from 'lucide-react';
 
 interface StudentsManagementProps {
@@ -43,6 +50,10 @@ export function StudentsManagement({
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [error, setError] = useState<string | null>(null);
 
+  // Classroom Notes Modal state
+  const [isNotesModalOpen, setIsNotesModalOpen] = useState(false);
+  const [notesTargetStudentId, setNotesTargetStudentId] = useState<string | undefined>(undefined);
+
   // Add / Edit Student Modal
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingEnrollment, setEditingEnrollment] = useState<EnrollmentStudent | null>(null);
@@ -60,8 +71,20 @@ export function StudentsManagement({
     enrollment: any;
     comments: TeacherComment[];
     evaluationHistory: any;
+    accommodations?: any;
+    classroomNotes?: ClassroomNote[];
   } | null>(null);
   const [isLoadingRecord, setIsLoadingRecord] = useState(false);
+
+  // DL 54 state inside Ficha Individual
+  const [dl54Active, setDl54Active] = useState(false);
+  const [dl54Measures, setDl54Measures] = useState<string[]>([]);
+  const [dl54Details, setDl54Details] = useState('');
+  const [dl54Saved, setDl54Saved] = useState(false);
+
+  // Quick Classroom Note state inside Ficha Individual
+  const [quickNoteCat, setQuickNoteCat] = useState<'tpc' | 'participacao' | 'material' | 'comportamento' | 'evolucao' | 'outro'>('tpc');
+  const [quickNoteText, setQuickNoteText] = useState('');
 
   // New Comment state
   const [newCommentText, setNewCommentText] = useState('');
@@ -176,11 +199,148 @@ export function StudentsManagement({
     try {
       const data = await apiRequest(`/students/${student.student_id}/record?classId=${classId}`);
       setSelectedStudentRecord(data);
+
+      if (data.accommodations) {
+        setDl54Active(Boolean(data.accommodations.has_dl54));
+        setDl54Measures(data.accommodations.measures || []);
+        setDl54Details(data.accommodations.details || '');
+      } else {
+        setDl54Active(false);
+        setDl54Measures([]);
+        setDl54Details('');
+      }
     } catch (err: any) {
       setError(err.message || 'Erro ao carregar ficha do aluno');
     } finally {
       setIsLoadingRecord(false);
     }
+  };
+
+  // Save DL54 Accommodations
+  const handleSaveAccommodations = async () => {
+    if (!selectedStudentRecord) return;
+    try {
+      await apiRequest(`/enrollments/${selectedStudentRecord.enrollment.id}/accommodations`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          hasDl54: dl54Active,
+          measures: dl54Measures,
+          details: dl54Details,
+        }),
+      });
+      setDl54Saved(true);
+      setTimeout(() => setDl54Saved(false), 2500);
+      onRefresh();
+    } catch (err: any) {
+      setError(err.message || 'Erro ao guardar acomodações');
+    }
+  };
+
+  // Quick Classroom Note from Ficha Individual
+  const handleAddQuickClassroomNote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStudentRecord || !quickNoteText.trim()) return;
+
+    try {
+      const res = await apiRequest<{ note: ClassroomNote }>(`/classes/${classId}/classroom-notes`, {
+        method: 'POST',
+        body: JSON.stringify({
+          enrollmentId: selectedStudentRecord.enrollment.id,
+          category: quickNoteCat,
+          note: quickNoteText.trim(),
+          date: new Date().toISOString().slice(0, 10),
+        }),
+      });
+
+      setSelectedStudentRecord((prev) =>
+        prev
+          ? {
+              ...prev,
+              classroomNotes: [res.note, ...(prev.classroomNotes || [])],
+            }
+          : prev
+      );
+      setQuickNoteText('');
+    } catch (err: any) {
+      setError(err.message || 'Erro ao registar nota de aula');
+    }
+  };
+
+  const handleDeleteClassroomNote = async (noteId: string) => {
+    try {
+      await apiRequest(`/classroom-notes/${noteId}`, { method: 'DELETE' });
+      setSelectedStudentRecord((prev) =>
+        prev
+          ? {
+              ...prev,
+              classroomNotes: (prev.classroomNotes || []).filter((n) => n.id !== noteId),
+            }
+          : prev
+      );
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  // Export Individual Student Progress Report (Boletim PDF)
+  const handleDownloadBoletim = () => {
+    if (!selectedStudentRecord) return;
+    const st = selectedStudentRecord.student;
+    const enr = selectedStudentRecord.enrollment;
+    const history = selectedStudentRecord.evaluationHistory;
+
+    let regularRecords: any[] | undefined = undefined;
+    if (educationType === 'regular' && history.periods) {
+      regularRecords = history.periods.map((p: any) => ({
+        periodName: p.period.name,
+        instruments: (p.results || []).map((r: any) => ({
+          title: r.instrument_title,
+          score: r.score_value !== null ? `${r.score_value}/${r.max_score}` : (r.special_status || '—'),
+          maxScore: r.max_score,
+        })),
+        finalGrade: p.finalGrade?.final_grade_value ?? '—',
+        statusText:
+          p.finalGrade?.final_grade_value !== null && p.finalGrade?.final_grade_value !== undefined && p.finalGrade?.final_grade_value >= 10
+            ? 'Aprovado'
+            : 'Em avaliação',
+      }));
+    }
+
+    let professionalRecords: any[] | undefined = undefined;
+    if (educationType === 'professional' && history.ucs) {
+      professionalRecords = history.ucs.map((u: any) => ({
+        ucName: `${u.uc.code ? '[' + u.uc.code + '] ' : ''}${u.uc.name}`,
+        modules: (u.modules || []).map((m: any) => ({
+          codeOrNumber: m.module.code_or_number,
+          name: m.module.name,
+          hours: m.module.hours,
+          grade: m.finalGrade?.final_grade_value ?? '—',
+          status: m.finalGrade?.status || 'por_avaliar',
+          completionDate: m.finalGrade?.completion_date,
+        })),
+      }));
+    }
+
+    const doc = generateStudentProgressReportPdf({
+      teacherName: enr.teacher_name || 'Professor',
+      schoolName: enr.school || null,
+      academicYear: enr.academic_year_name || '',
+      className: enr.class_name || className,
+      courseName: enr.course_name || null,
+      student: {
+        studentNumber: enr.student_number,
+        fullName: st.full_name,
+        status: enr.status,
+      },
+      educationType,
+      scale: enr.default_scale || '0-20',
+      regularRecords,
+      professionalRecords,
+      pedagogicalObservations: selectedStudentRecord.comments.map((c) => c.text),
+    });
+
+    const cleanName = st.full_name.replace(/[^a-zA-Z0-9_\-]/g, '_');
+    doc.save(`Boletim_N${enr.student_number}_${cleanName}.pdf`);
   };
 
   // Add Comment
@@ -275,7 +435,18 @@ export function StudentsManagement({
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => {
+              setNotesTargetStudentId(undefined);
+              setIsNotesModalOpen(true);
+            }}
+            className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5"
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            Diário de Bordo da Turma
+          </button>
           <button
             type="button"
             onClick={() => setIsBulkOpen(true)}
@@ -322,7 +493,6 @@ export function StudentsManagement({
                 setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'));
               } else {
                 setSortField('number');
-                setSortDirection('asc');
               }
             }}
             className={`px-2.5 py-1 rounded font-medium cursor-pointer flex items-center gap-1 ${
@@ -339,7 +509,6 @@ export function StudentsManagement({
                 setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'));
               } else {
                 setSortField('name');
-                setSortDirection('asc');
               }
             }}
             className={`px-2.5 py-1 rounded font-medium cursor-pointer flex items-center gap-1 ${
@@ -374,7 +543,17 @@ export function StudentsManagement({
                     {st.student_number}
                   </td>
                   <td className="py-3 px-4 font-semibold text-slate-900">
-                    {st.full_name}
+                    <div className="flex items-center gap-2">
+                      <span>{st.full_name}</span>
+                      {st.has_dl54 && (
+                        <span
+                          className="px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-purple-100 text-purple-800 border border-purple-200 cursor-help"
+                          title="Medidas Universais / Acomodações (Decreto-Lei n.º 54/2018)"
+                        >
+                          DL 54
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="py-3 px-4 text-center">
                     <span
@@ -554,13 +733,25 @@ export function StudentsManagement({
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setSelectedStudentRecord(null)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleDownloadBoletim}
+                  className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+                  title="Descarregar Boletim Pedagógico Individual em PDF (para o Diretor de Turma ou Pais)"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Boletim Pedagógico (PDF)
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedStudentRecord(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             {/* Academic History Record */}
@@ -663,6 +854,192 @@ export function StudentsManagement({
               )}
             </div>
 
+            {/* DECRETO-LEI 54/2018: MEDIDAS DE SUPORTE À APRENDIZAGEM */}
+            <div className="p-4 bg-purple-50/60 border border-purple-200 rounded-2xl space-y-3.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-purple-100 text-purple-700 rounded-lg">
+                    <HeartHandshake className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-purple-950 uppercase tracking-wide">
+                      Acomodações Pedagógicas (Decreto-Lei n.º 54/2018)
+                    </h4>
+                    <p className="text-[11px] text-purple-700">
+                      Registo pessoal confidencial • Estritamente excluído de todas as pautas públicas
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={dl54Active}
+                  onClick={() => setDl54Active(!dl54Active)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-purple-600 ${
+                    dl54Active ? 'bg-purple-600' : 'bg-slate-300'
+                  }`}
+                  title={dl54Active ? 'Desativar Medidas DL 54' : 'Ativar Medidas DL 54'}
+                >
+                  <span className="sr-only">Ativar Medidas DL 54</span>
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                      dl54Active ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {dl54Active && (
+                <div className="space-y-3 pt-2 border-t border-purple-200/60">
+                  <div className="space-y-1.5">
+                    <label className="block text-[11px] font-bold text-purple-900">
+                      Medidas Universais / Acomodações Curriculares:
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      {DL54_MEASURES_CATALOG.map((measure) => {
+                        const isChecked = dl54Measures.includes(measure.id);
+                        return (
+                          <label
+                            key={measure.id}
+                            className={`flex items-start gap-2 p-2 rounded-lg text-xs cursor-pointer border transition-colors ${
+                              isChecked
+                                ? 'bg-purple-100/70 border-purple-300 text-purple-900 font-medium'
+                                : 'bg-white/80 border-purple-100 text-slate-700 hover:bg-white'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setDl54Measures([...dl54Measures, measure.id]);
+                                } else {
+                                  setDl54Measures(dl54Measures.filter((m) => m !== measure.id));
+                                }
+                              }}
+                              className="mt-0.5 rounded text-purple-600 focus:ring-purple-500"
+                            />
+                            <span className="leading-tight">{measure.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-purple-900 mb-1">
+                      Observações Pedagógicas Confidenciais:
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={dl54Details}
+                      onChange={(e) => setDl54Details(e.target.value)}
+                      placeholder="Ex: Tempo extra aplicado nos testes; enunciados impressos com espaçamento duplo..."
+                      className="w-full p-2.5 text-xs bg-white border border-purple-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[10px] text-purple-700">
+                      Identificação com badge discreto «DL 54» visível apenas para o professor.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleSaveAccommodations}
+                      className="px-3.5 py-1.5 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer inline-flex items-center gap-1.5"
+                    >
+                      {dl54Saved ? (
+                        <>
+                          <Check className="w-3.5 h-3.5" /> Guardado!
+                        </>
+                      ) : (
+                        'Guardar Medidas DL 54'
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* DIÁRIO DE BORDO & OCORRÊNCIAS DE AULA */}
+            <div className="space-y-3 pt-4 border-t border-slate-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-700">
+                  <BookOpen className="w-4 h-4 text-indigo-600" />
+                  <span>Diário de Bordo & Ocorrências de Aula</span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-medium">
+                  {selectedStudentRecord.classroomNotes?.length || 0} registos
+                </span>
+              </div>
+
+              {/* Quick Add Note Form */}
+              <form onSubmit={handleAddQuickClassroomNote} className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={quickNoteCat}
+                    onChange={(e) => setQuickNoteCat(e.target.value as any)}
+                    className="px-2 py-1 text-xs bg-white border border-slate-300 rounded-lg font-medium cursor-pointer"
+                  >
+                    <option value="tpc">TPC em Falta</option>
+                    <option value="participacao">Participação Relevante</option>
+                    <option value="material">Falta de Material / TIC</option>
+                    <option value="comportamento">Comportamento / Atitude</option>
+                    <option value="evolucao">Evolução / Destaque</option>
+                    <option value="outro">Outro Registo</option>
+                  </select>
+
+                  <input
+                    type="text"
+                    required
+                    value={quickNoteText}
+                    onChange={(e) => setQuickNoteText(e.target.value)}
+                    placeholder="Registar nota rápida de aula..."
+                    className="flex-1 px-2.5 py-1 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+
+                  <button
+                    type="submit"
+                    className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-2xs cursor-pointer"
+                  >
+                    Adicionar
+                  </button>
+                </div>
+              </form>
+
+              {/* Classroom Notes List */}
+              <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                {(!selectedStudentRecord.classroomNotes || selectedStudentRecord.classroomNotes.length === 0) ? (
+                  <p className="text-xs text-slate-400 italic py-1">Nenhuma ocorrência diária registada para este aluno.</p>
+                ) : (
+                  selectedStudentRecord.classroomNotes.map((cn) => (
+                    <div
+                      key={cn.id}
+                      className="p-2.5 bg-white border border-slate-200 rounded-lg flex items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                          {cn.category.toUpperCase()}
+                        </span>
+                        <span className="text-slate-800">{cn.note}</span>
+                        <span className="text-[10px] text-slate-400">
+                          ({cn.date ? new Date(cn.date).toLocaleDateString('pt-PT') : ''})
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteClassroomNote(cn.id)}
+                        className="text-slate-400 hover:text-rose-600 cursor-pointer p-1"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
             {/* PRIVATE TEACHER COMMENTS SECTION */}
             <div className="space-y-3 pt-4 border-t border-slate-200">
               <div className="flex items-center justify-between">
@@ -763,6 +1140,17 @@ export function StudentsManagement({
           </div>
         </div>
       )}
+
+      {/* MODAL: DIÁRIO DE BORDO DA TURMA */}
+      <ClassroomNotesModal
+        isOpen={isNotesModalOpen}
+        onClose={() => setIsNotesModalOpen(false)}
+        classId={classId}
+        className={className}
+        students={students}
+        initialStudentId={notesTargetStudentId}
+        onRefresh={onRefresh}
+      />
     </div>
   );
 }

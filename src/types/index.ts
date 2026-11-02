@@ -42,6 +42,8 @@ export interface EnrollmentStudent {
   status: StudentStatus;
   student_id: string;
   full_name: string;
+  has_dl54?: boolean;
+  accommodations?: StudentAccommodation;
 }
 
 export interface RegularSubject {
@@ -146,5 +148,104 @@ export interface TeacherInvitation {
   used_by_teacher_id?: string | null;
   created_at: string;
   used_by_name?: string | null;
+}
+
+export interface StudentAccommodation {
+  id: string;
+  enrollment_id: string;
+  has_dl54: number; // 0 or 1
+  measures: string[];
+  details?: string | null;
+  updated_at: string;
+}
+
+export type ClassroomNoteCategory =
+  | 'tpc'
+  | 'participacao'
+  | 'material'
+  | 'comportamento'
+  | 'evolucao'
+  | 'outro';
+
+export interface ClassroomNote {
+  id: string;
+  teacher_id: string;
+  enrollment_id: string;
+  class_id: string;
+  student_name?: string;
+  student_number?: number;
+  category: ClassroomNoteCategory;
+  note: string;
+  date: string;
+  created_at: string;
+}
+
+export interface RubricLevelDescription {
+  level: number;
+  title: string;
+  description: string;
+}
+
+export interface RubricCriterion {
+  id: string;
+  rubric_id: string;
+  name: string;
+  weight: number;
+  max_points: number;
+  levels?: RubricLevelDescription[];
+  order_index: number;
+}
+
+export interface ObservationRubric {
+  id: string;
+  teacher_id: string;
+  class_id: string;
+  title: string;
+  description?: string | null;
+  criteria: RubricCriterion[];
+  created_at: string;
+}
+
+export interface StudentRubricEvaluation {
+  id: string;
+  rubric_id: string;
+  enrollment_id: string;
+  context_type: 'regular_period' | 'professional_module' | 'instrument';
+  context_id: string;
+  scores: Record<string, number>;
+  total_score: number;
+  converted_grade: number;
+  notes?: string | null;
+  updated_at: string;
+}
+
+export interface AtRiskStudent {
+  enrollment_id: string;
+  student_number: number;
+  student_name: string;
+  current_grade?: number | null;
+  reasons: string[];
+  uncompleted_modules_count?: number;
+  missing_instruments_count?: number;
+}
+
+export interface ClassStatistics {
+  totalStudents: number;
+  activeStudents: number;
+  averageGrade: number | null;
+  medianGrade: number | null;
+  highestGrade: number | null;
+  lowestGrade: number | null;
+  passingCount: number;
+  failingCount: number;
+  successRate: number; // Percentage 0 - 100
+  failureRate: number; // Percentage 0 - 100
+  gradeDistribution: {
+    label: string;
+    count: number;
+    percentage: number;
+    color: string;
+  }[];
+  atRiskStudents: AtRiskStudent[];
 }
 

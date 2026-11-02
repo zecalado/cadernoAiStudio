@@ -164,6 +164,59 @@ export function initDatabase() {
       used_by_teacher_id TEXT REFERENCES teachers(id),
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS student_accommodations (
+      id TEXT PRIMARY KEY,
+      enrollment_id TEXT NOT NULL UNIQUE REFERENCES enrollments(id) ON DELETE CASCADE,
+      has_dl54 INTEGER DEFAULT 0,
+      measures TEXT,
+      details TEXT,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS classroom_notes (
+      id TEXT PRIMARY KEY,
+      teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+      enrollment_id TEXT NOT NULL REFERENCES enrollments(id) ON DELETE CASCADE,
+      class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+      category TEXT NOT NULL,
+      note TEXT NOT NULL,
+      date TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS observation_rubrics (
+      id TEXT PRIMARY KEY,
+      teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+      class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      description TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS rubric_criteria (
+      id TEXT PRIMARY KEY,
+      rubric_id TEXT NOT NULL REFERENCES observation_rubrics(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      weight REAL DEFAULT 1,
+      max_points REAL DEFAULT 5,
+      levels_json TEXT,
+      order_index INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS student_rubric_evaluations (
+      id TEXT PRIMARY KEY,
+      rubric_id TEXT NOT NULL REFERENCES observation_rubrics(id) ON DELETE CASCADE,
+      enrollment_id TEXT NOT NULL REFERENCES enrollments(id) ON DELETE CASCADE,
+      context_type TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      scores_json TEXT NOT NULL,
+      total_score REAL NOT NULL,
+      converted_grade REAL,
+      notes TEXT,
+      updated_at TEXT NOT NULL,
+      UNIQUE (rubric_id, enrollment_id, context_id)
+    );
   `);
 }
 

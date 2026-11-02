@@ -8,3 +8,5 @@ coverage/
 !.env.example
 *.sqlite*
 .aistudio/
+.playwright-cli/
+*.png

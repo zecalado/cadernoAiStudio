@@ -29,8 +29,10 @@ import {
   List,
   Check,
   ChevronRight,
-  Sparkles
+  Sparkles,
+  Scale
 } from 'lucide-react';
+import { RubricsModal } from './RubricsModal';
 
 interface EvaluationProfessionalProps {
   classId: string;
@@ -69,6 +71,10 @@ export function EvaluationProfessional({ classId, className, courseName, student
   const [newRecDate, setNewRecDate] = useState(new Date().toISOString().split('T')[0]);
   const [newRecScore, setNewRecScore] = useState<string>('');
   const [newRecObs, setNewRecObs] = useState<string>('');
+
+  // Rubrics Modal
+  const [isRubricsModalOpen, setIsRubricsModalOpen] = useState(false);
+  const [rubricStudentToEvaluate, setRubricStudentToEvaluate] = useState<any>(null);
 
   // Lookup maps
   const [resultsMap, setResultsMap] = useState<Record<string, { scoreValue: number | null; specialStatus: SpecialStatus }>>({});
@@ -512,6 +518,17 @@ export function EvaluationProfessional({ classId, className, courseName, student
                   </span>
                 )}
               </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setRubricStudentToEvaluate(null);
+                  setIsRubricsModalOpen(true);
+                }}
+                className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold shadow-2xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <Scale className="w-4 h-4" /> Rubricas de Observação
+              </button>
 
               <button
                 type="button"
@@ -992,6 +1009,25 @@ export function EvaluationProfessional({ classId, className, courseName, student
           </div>
         </div>
       )}
+
+      {/* RUBRICS MODAL */}
+      <RubricsModal
+        isOpen={isRubricsModalOpen}
+        onClose={() => setIsRubricsModalOpen(false)}
+        classId={classId}
+        targetScale="0-20"
+        studentToEvaluate={rubricStudentToEvaluate}
+        onApplyGrade={(grade) => {
+          if (rubricStudentToEvaluate) {
+            handleScoreChange(
+              rubricStudentToEvaluate.contextId,
+              rubricStudentToEvaluate.enrollmentId,
+              String(grade),
+              20
+            );
+          }
+        }}
+      />
     </div>
   );
 }

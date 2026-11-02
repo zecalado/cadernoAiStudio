@@ -8,6 +8,8 @@ import {
   resolveActiveGradeWithRecoveries,
   parseStudentsInput,
   checkInvitationStatus,
+  calculateClassStatistics,
+  calculateRubricGrade,
   type InstrumentWeightItem,
   type RecoveryAttemptRecord,
 } from './evaluation-logic';
@@ -146,5 +148,52 @@ test('checkInvitationStatus identifies valid, used and expired states correctly'
   // Expired
   const expiredInv = { expires_at: '2026-11-01T10:00:00Z', used_at: null };
   assert.equal(checkInvitationStatus(expiredInv, now).status, 'expired');
+});
+
+test('calculateClassStatistics calculates pedagogical indicators and identifies at-risk students', () => {
+  const students = [
+    { enrollmentId: 'e1', studentNumber: 1, studentName: 'Alice', status: 'active' as const, currentGrade: 16 },
+    { enrollmentId: 'e2', studentNumber: 2, studentName: 'Bruno', status: 'active' as const, currentGrade: 8, uncompletedModulesCount: 1 },
+    { enrollmentId: 'e3', studentNumber: 3, studentName: 'Carla', status: 'active' as const, currentGrade: 12 },
+    { enrollmentId: 'e4', studentNumber: 4, studentName: 'David', status: 'active' as const, currentGrade: 6, missingInstrumentsCount: 2 },
+    { enrollmentId: 'e5', studentNumber: 5, studentName: 'Eva', status: 'inactive' as const, currentGrade: 15 },
+  ];
+
+  const stats = calculateClassStatistics(students, '0-20', 10);
+  assert.equal(stats.totalStudents, 5);
+  assert.equal(stats.activeStudents, 4);
+  assert.equal(stats.passingCount, 2);
+  assert.equal(stats.failingCount, 2);
+  assert.equal(stats.successRate, 50);
+  assert.equal(stats.failureRate, 50);
+  assert.equal(stats.averageGrade, 10.5); // (16 + 8 + 12 + 6) / 4 = 10.5
+  assert.equal(stats.highestGrade, 16);
+  assert.equal(stats.lowestGrade, 6);
+
+  // At-risk students
+  assert.equal(stats.atRiskStudents.length, 2);
+  const bruno = stats.atRiskStudents.find(s => s.student_name === 'Bruno');
+  assert.ok(bruno);
+  assert.equal(bruno.reasons.length, 2); // grade < 10 and 1 module uncompleted
+});
+
+test('calculateRubricGrade correctly computes multi-criteria scores and normalizes to target scale', () => {
+  const criteria = [
+    { id: 'c1', weight: 40, maxPoints: 5 },
+    { id: 'c2', weight: 30, maxPoints: 5 },
+    { id: 'c3', weight: 30, maxPoints: 5 },
+  ];
+
+  // Perfect score: 5 in all
+  const perfect = calculateRubricGrade(criteria, { c1: 5, c2: 5, c3: 5 }, '0-20');
+  assert.equal(perfect.convertedGrade, 20);
+
+  // Half score: 2.5 in all or 5 in 50%
+  const half = calculateRubricGrade(criteria, { c1: 2.5, c2: 2.5, c3: 2.5 }, '0-20');
+  assert.equal(half.convertedGrade, 10);
+
+  // Conversion to 1-5 scale
+  const halfScale15 = calculateRubricGrade(criteria, { c1: 2.5, c2: 2.5, c3: 2.5 }, '1-5');
+  assert.equal(halfScale15.convertedGrade, 3);
 });
 

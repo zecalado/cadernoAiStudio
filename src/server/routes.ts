@@ -542,13 +542,29 @@ router.get('/classes/:id', authMiddleware, (req: Request, res: Response) => {
   }
 
   // Get enrolled students
-  const students = db.prepare(`
-    SELECT e.id as enrollment_id, e.student_number, e.status, s.id as student_id, s.full_name
+  const studentsRaw = db.prepare(`
+    SELECT e.id as enrollment_id, e.student_number, e.status, s.id as student_id, s.full_name,
+           sa.has_dl54, sa.measures as sa_measures, sa.details as sa_details
     FROM enrollments e
     JOIN students s ON s.id = e.student_id
+    LEFT JOIN student_accommodations sa ON sa.enrollment_id = e.id
     WHERE e.class_id = ?
     ORDER BY e.student_number ASC
-  `).all(classId);
+  `).all(classId) as any[];
+
+  const students = studentsRaw.map(st => ({
+    enrollment_id: st.enrollment_id,
+    student_number: st.student_number,
+    status: st.status,
+    student_id: st.student_id,
+    full_name: st.full_name,
+    has_dl54: Boolean(st.has_dl54),
+    accommodations: st.has_dl54 ? {
+      has_dl54: st.has_dl54,
+      measures: st.sa_measures ? JSON.parse(st.sa_measures) : [],
+      details: st.sa_details,
+    } : undefined,
+  }));
 
   // If regular: get TIC subject and 3 periods
   let regularData = null;
@@ -902,11 +918,34 @@ router.get('/students/:studentId/record', authMiddleware, (req: Request, res: Re
     evaluationHistory = { ucs: ucsData };
   }
 
+  // Get accommodations (DL 54)
+  const accommodationRow = db.prepare(`
+    SELECT * FROM student_accommodations WHERE enrollment_id = ?
+  `).get(enrollment.id) as any;
+
+  const accommodations = accommodationRow ? {
+    id: accommodationRow.id,
+    enrollment_id: accommodationRow.enrollment_id,
+    has_dl54: accommodationRow.has_dl54,
+    measures: accommodationRow.measures ? JSON.parse(accommodationRow.measures) : [],
+    details: accommodationRow.details,
+    updated_at: accommodationRow.updated_at,
+  } : null;
+
+  // Get classroom daily notes
+  const classroomNotes = db.prepare(`
+    SELECT * FROM classroom_notes 
+    WHERE enrollment_id = ?
+    ORDER BY date DESC, created_at DESC
+  `).all(enrollment.id);
+
   res.json({
     student,
     enrollment,
     comments,
     evaluationHistory,
+    accommodations,
+    classroomNotes,
   });
 } catch (err: any) {
   console.error('Error in student record:', err);
@@ -1777,3 +1816,229 @@ router.post('/demo/seed', (req: Request, res: Response) => {
 
   res.json({ success: true, token, teacher });
 });
+
+// -------------------------------------------------------------
+// DL 54/2018 ACCOMMODATIONS
+// -------------------------------------------------------------
+router.put('/enrollments/:id/accommodations', authMiddleware, (req: Request, res: Response) => {
+  const teacherId = (req as any).teacher.id;
+  const enrollmentId = req.params.id;
+  const { hasDl54, measures, details } = req.body;
+
+  // Verify ownership
+  const enrollment = db.prepare(`
+    SELECT e.id, c.teacher_id 
+    FROM enrollments e
+    JOIN classes c ON c.id = e.class_id
+    WHERE e.id = ? AND c.teacher_id = ?
+  `).get(enrollmentId, teacherId);
+
+  if (!enrollment) {
+    return res.status(404).json({ error: 'Inscrição não encontrada ou sem permissão.' });
+  }
+
+  const now = new Date().toISOString();
+  const measuresJson = Array.isArray(measures) ? JSON.stringify(measures) : JSON.stringify([]);
+
+  const existing = db.prepare('SELECT id FROM student_accommodations WHERE enrollment_id = ?').get(enrollmentId);
+
+  if (existing) {
+    db.prepare(`
+      UPDATE student_accommodations 
+      SET has_dl54 = ?, measures = ?, details = ?, updated_at = ?
+      WHERE enrollment_id = ?
+    `).run(hasDl54 ? 1 : 0, measuresJson, details ? details.trim() : null, now, enrollmentId);
+  } else {
+    db.prepare(`
+      INSERT INTO student_accommodations (id, enrollment_id, has_dl54, measures, details, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(generateId(), enrollmentId, hasDl54 ? 1 : 0, measuresJson, details ? details.trim() : null, now);
+  }
+
+  res.json({ success: true });
+});
+
+// -------------------------------------------------------------
+// CLASSROOM NOTES / DIÁRIO DE BORDO
+// -------------------------------------------------------------
+router.get('/classes/:id/classroom-notes', authMiddleware, (req: Request, res: Response) => {
+  const teacherId = (req as any).teacher.id;
+  const classId = req.params.id;
+
+  const notes = db.prepare(`
+    SELECT cn.*, s.full_name as student_name, e.student_number
+    FROM classroom_notes cn
+    JOIN enrollments e ON e.id = cn.enrollment_id
+    JOIN students s ON s.id = e.student_id
+    WHERE cn.class_id = ? AND cn.teacher_id = ?
+    ORDER BY cn.date DESC, cn.created_at DESC
+  `).all(classId, teacherId);
+
+  res.json({ notes });
+});
+
+router.post('/classes/:id/classroom-notes', authMiddleware, (req: Request, res: Response) => {
+  const teacherId = (req as any).teacher.id;
+  const classId = req.params.id;
+  const { enrollmentId, category, note, date } = req.body;
+
+  if (!enrollmentId || !note || !note.trim()) {
+    return res.status(400).json({ error: 'Preencha o aluno e a nota de aula.' });
+  }
+
+  const id = generateId();
+  const noteDate = date || new Date().toISOString().slice(0, 10);
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    INSERT INTO classroom_notes (id, teacher_id, enrollment_id, class_id, category, note, date, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, teacherId, enrollmentId, classId, category || 'outro', note.trim(), noteDate, now);
+
+  const created = db.prepare(`
+    SELECT cn.*, s.full_name as student_name, e.student_number
+    FROM classroom_notes cn
+    JOIN enrollments e ON e.id = cn.enrollment_id
+    JOIN students s ON s.id = e.student_id
+    WHERE cn.id = ?
+  `).get(id);
+
+  res.json({ note: created });
+});
+
+router.delete('/classroom-notes/:id', authMiddleware, (req: Request, res: Response) => {
+  const teacherId = (req as any).teacher.id;
+  const noteId = req.params.id;
+
+  db.prepare('DELETE FROM classroom_notes WHERE id = ? AND teacher_id = ?').run(noteId, teacherId);
+  res.json({ success: true });
+});
+
+// -------------------------------------------------------------
+// OBSERVATION RUBRICS
+// -------------------------------------------------------------
+router.get('/classes/:id/rubrics', authMiddleware, (req: Request, res: Response) => {
+  const teacherId = (req as any).teacher.id;
+  const classId = req.params.id;
+
+  const rubrics = db.prepare(`
+    SELECT * FROM observation_rubrics 
+    WHERE class_id = ? AND teacher_id = ?
+    ORDER BY created_at DESC
+  `).all(classId, teacherId) as any[];
+
+  const detailedRubrics = rubrics.map(rubric => {
+    const rawCriteria = db.prepare(`
+      SELECT * FROM rubric_criteria 
+      WHERE rubric_id = ?
+      ORDER BY order_index ASC
+    `).all(rubric.id) as any[];
+
+    const criteria = rawCriteria.map(c => ({
+      ...c,
+      levels: c.levels_json ? JSON.parse(c.levels_json) : [],
+    }));
+
+    return {
+      ...rubric,
+      criteria,
+    };
+  });
+
+  res.json({ rubrics: detailedRubrics });
+});
+
+router.post('/classes/:id/rubrics', authMiddleware, (req: Request, res: Response) => {
+  const teacherId = (req as any).teacher.id;
+  const classId = req.params.id;
+  const { title, description, criteria } = req.body;
+
+  if (!title || !title.trim()) {
+    return res.status(400).json({ error: 'O título da rubrica é obrigatório.' });
+  }
+
+  const rubricId = generateId();
+  const now = new Date().toISOString();
+
+  db.transaction(() => {
+    db.prepare(`
+      INSERT INTO observation_rubrics (id, teacher_id, class_id, title, description, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(rubricId, teacherId, classId, title.trim(), description ? description.trim() : null, now);
+
+    if (Array.isArray(criteria) && criteria.length > 0) {
+      criteria.forEach((crit: any, idx: number) => {
+        const critId = generateId();
+        const levelsJson = crit.levels ? JSON.stringify(crit.levels) : null;
+        db.prepare(`
+          INSERT INTO rubric_criteria (id, rubric_id, name, weight, max_points, levels_json, order_index)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(critId, rubricId, crit.name.trim(), crit.weight || 1, crit.max_points || 5, levelsJson, idx);
+      });
+    }
+  })();
+
+  res.json({ success: true, rubricId });
+});
+
+router.delete('/rubrics/:id', authMiddleware, (req: Request, res: Response) => {
+  const teacherId = (req as any).teacher.id;
+  const rubricId = req.params.id;
+
+  db.prepare('DELETE FROM observation_rubrics WHERE id = ? AND teacher_id = ?').run(rubricId, teacherId);
+  res.json({ success: true });
+});
+
+router.get('/rubrics/:id/evaluations', authMiddleware, (req: Request, res: Response) => {
+  const rubricId = req.params.id;
+  const contextId = req.query.contextId as string;
+
+  let query = 'SELECT * FROM student_rubric_evaluations WHERE rubric_id = ?';
+  const params: any[] = [rubricId];
+
+  if (contextId) {
+    query += ' AND context_id = ?';
+    params.push(contextId);
+  }
+
+  const rawEvals = db.prepare(query).all(...params) as any[];
+  const evaluations = rawEvals.map(e => ({
+    ...e,
+    scores: JSON.parse(e.scores_json),
+  }));
+
+  res.json({ evaluations });
+});
+
+router.post('/rubrics/:id/evaluations', authMiddleware, (req: Request, res: Response) => {
+  const rubricId = req.params.id;
+  const { enrollmentId, contextType, contextId, scores, totalScore, convertedGrade, notes } = req.body;
+
+  if (!enrollmentId || !contextId || !scores) {
+    return res.status(400).json({ error: 'Dados da avaliação por rubrica incompletos.' });
+  }
+
+  const now = new Date().toISOString();
+  const scoresJson = JSON.stringify(scores);
+
+  const existing = db.prepare(`
+    SELECT id FROM student_rubric_evaluations 
+    WHERE rubric_id = ? AND enrollment_id = ? AND context_id = ?
+  `).get(rubricId, enrollmentId, contextId) as any;
+
+  if (existing) {
+    db.prepare(`
+      UPDATE student_rubric_evaluations 
+      SET scores_json = ?, total_score = ?, converted_grade = ?, notes = ?, updated_at = ?
+      WHERE id = ?
+    `).run(scoresJson, totalScore, convertedGrade, notes ? notes.trim() : null, now, existing.id);
+  } else {
+    db.prepare(`
+      INSERT INTO student_rubric_evaluations (id, rubric_id, enrollment_id, context_type, context_id, scores_json, total_score, converted_grade, notes, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(generateId(), rubricId, enrollmentId, contextType || 'instrument', contextId, scoresJson, totalScore, convertedGrade, notes ? notes.trim() : null, now);
+  }
+
+  res.json({ success: true });
+});
+

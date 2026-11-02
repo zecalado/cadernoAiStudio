@@ -26,8 +26,10 @@ import {
   HelpCircle,
   FileSpreadsheet,
   Check,
-  RotateCcw
+  RotateCcw,
+  Scale
 } from 'lucide-react';
+import { RubricsModal } from './RubricsModal';
 
 interface EvaluationRegularProps {
   classId: string;
@@ -52,6 +54,10 @@ export function EvaluationRegular({ classId, className, defaultScale, students }
   const [instDate, setInstDate] = useState(new Date().toISOString().split('T')[0]);
   const [instMaxScore, setInstMaxScore] = useState<number>(defaultScale === '1-5' ? 5 : 20);
   const [instWeight, setInstWeight] = useState<number>(0);
+
+  // Rubrics Modal
+  const [isRubricsModalOpen, setIsRubricsModalOpen] = useState(false);
+  const [rubricStudentToEvaluate, setRubricStudentToEvaluate] = useState<any>(null);
 
   // Proposal modal
   const [isProposalModalOpen, setIsProposalModalOpen] = useState(false);
@@ -349,6 +355,17 @@ export function EvaluationRegular({ classId, className, defaultScale, students }
               <span className="text-slate-400 text-[11px]">Gravação automática ativa</span>
             )}
           </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setRubricStudentToEvaluate(null);
+              setIsRubricsModalOpen(true);
+            }}
+            className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold shadow-2xs flex items-center gap-1.5 cursor-pointer"
+          >
+            <Scale className="w-4 h-4" /> Rubricas de Observação
+          </button>
 
           <button
             type="button"
@@ -809,6 +826,25 @@ export function EvaluationRegular({ classId, className, defaultScale, students }
           </div>
         </div>
       )}
+
+      {/* RUBRICS MODAL */}
+      <RubricsModal
+        isOpen={isRubricsModalOpen}
+        onClose={() => setIsRubricsModalOpen(false)}
+        classId={classId}
+        targetScale={scale}
+        studentToEvaluate={rubricStudentToEvaluate}
+        onApplyGrade={(grade) => {
+          if (rubricStudentToEvaluate) {
+            handleScoreChange(
+              rubricStudentToEvaluate.contextId,
+              rubricStudentToEvaluate.enrollmentId,
+              String(grade),
+              20
+            );
+          }
+        }}
+      />
     </div>
   );
 }
