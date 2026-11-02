@@ -88,6 +88,48 @@ router.post('/auth/setup', (req: Request, res: Response) => {
   });
 });
 
+router.post('/auth/register', (req: Request, res: Response) => {
+  const { email, password, name, school } = req.body;
+  if (!email || !password || !name) {
+    return res.status(400).json({ error: 'Preencha o nome, email e palavra-passe.' });
+  }
+
+  const cleanEmail = email.toLowerCase().trim();
+  const cleanName = name.trim();
+
+  if (cleanName.length < 2) {
+    return res.status(400).json({ error: 'O nome do professor deve ter pelo menos 2 caracteres.' });
+  }
+
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'A palavra-passe deve ter pelo menos 6 caracteres.' });
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    return res.status(400).json({ error: 'Introduza um endereço de email válido.' });
+  }
+
+  const existingTeacher = db.prepare('SELECT id FROM teachers WHERE email = ?').get(cleanEmail);
+  if (existingTeacher) {
+    return res.status(400).json({ error: 'Já existe uma conta associada a este endereço de email. Inicie sessão ou redefina a palavra-passe.' });
+  }
+
+  const id = generateId();
+  const passwordHash = bcrypt.hashSync(password, 10);
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    INSERT INTO teachers (id, email, password_hash, name, school, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, cleanEmail, passwordHash, cleanName, school ? school.trim() : null, now);
+
+  const token = jwt.sign({ teacherId: id, email: cleanEmail }, JWT_SECRET, { expiresIn: '7d' });
+  res.json({
+    token,
+    teacher: { id, email: cleanEmail, name: cleanName, school: school ? school.trim() : null },
+  });
+});
+
 router.post('/auth/login', (req: Request, res: Response) => {
   const { email, password } = req.body;
   if (!email || !password) {
