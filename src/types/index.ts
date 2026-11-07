@@ -249,3 +249,54 @@ export interface ClassStatistics {
   atRiskStudents: AtRiskStudent[];
 }
 
+export type AttendanceStatus = 'present' | 'justified' | 'unjustified' | 'late' | 'material_missing';
+
+export interface AttendanceRecord {
+  id: string;
+  session_id: string;
+  enrollment_id: string;
+  status: AttendanceStatus;
+  notes?: string | null;
+}
+
+export interface AttendanceSession {
+  id: string;
+  class_id: string;
+  teacher_id: string;
+  date: string;
+  lesson_number: number;
+  duration_blocks: number;
+  summary_id?: string | null;
+  created_at: string;
+  records?: AttendanceRecord[];
+}
+
+export interface StudentAttendanceSummary {
+  enrollment_id: string;
+  student_number: number;
+  student_name: string;
+  status: string;
+  total_sessions: number;
+  present_count: number;
+  justified_count: number;
+  unjustified_count: number;
+  late_count: number;
+  material_missing_count: number;
+  attendance_percentage: number;
+  is_limit_exceeded: boolean;
+  is_warning: boolean;
+}
+
+export interface LessonSummary {
+  id: string;
+  class_id: string;
+  teacher_id: string;
+  lesson_number: number;
+  date: string;
+  title: string;
+  summary_text: string;
+  module_or_domain?: string | null;
+  created_at: string;
+}
+
+

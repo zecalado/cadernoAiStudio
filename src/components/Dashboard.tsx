@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { apiRequest, clearStoredToken } from '../api/client';
 import { Teacher, AcademicYear, ClassItem, EducationType, GradeScale, TeacherInvitation } from '../types';
 import { Footer } from './Footer';
+import { BackupModal } from './BackupModal';
 import {
   GraduationCap,
   Calendar,
   Users,
   Plus,
+  Download,
   BookOpen,
   Briefcase,
   LogOut,
@@ -61,6 +63,7 @@ export function Dashboard({ teacher, onSelectClass, onLogout }: DashboardProps) 
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [inviteSuccessMsg, setInviteSuccessMsg] = useState<string | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
 
   const loadData = async () => {
     try {
@@ -277,6 +280,15 @@ export function Dashboard({ teacher, onSelectClass, onLogout }: DashboardProps) 
             >
               <UserPlus className="w-3.5 h-3.5 text-indigo-600" />
               <span className="hidden md:inline">Convidar Colega</span>
+            </button>
+
+            <button
+              onClick={() => setIsBackupModalOpen(true)}
+              className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 hover:text-indigo-600 px-2.5 py-1.5 rounded-lg hover:bg-indigo-50 border border-slate-200 transition-colors cursor-pointer"
+              title="Cópia de Segurança de Todos os Dados"
+            >
+              <Download className="w-3.5 h-3.5 text-slate-500" />
+              <span className="hidden lg:inline">Backup</span>
             </button>
 
             <div className="h-6 w-px bg-slate-200 mx-1" />
@@ -854,6 +866,12 @@ export function Dashboard({ teacher, onSelectClass, onLogout }: DashboardProps) 
           </div>
         </div>
       )}
+
+      {/* Modal: Backup */}
+      <BackupModal
+        isOpen={isBackupModalOpen}
+        onClose={() => setIsBackupModalOpen(false)}
+      />
 
       {/* Plataforma Footer */}
       <Footer />

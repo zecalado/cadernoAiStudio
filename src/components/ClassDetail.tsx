@@ -13,6 +13,9 @@ import { EvaluationRegular } from './EvaluationRegular';
 import { EvaluationProfessional } from './EvaluationProfessional';
 import { StudentsManagement } from './StudentsManagement';
 import { PautasExportView } from './PautasExportView';
+import { AttendanceView } from './AttendanceView';
+import { LessonSummariesView } from './LessonSummariesView';
+import { BackupModal } from './BackupModal';
 import { Footer } from './Footer';
 import {
   ArrowLeft,
@@ -21,6 +24,7 @@ import {
   Users,
   Award,
   FileText,
+  Download,
   Settings,
   Plus,
   Trash2,
@@ -65,6 +69,7 @@ export function ClassDetail({ classId, teacher, onBack }: ClassDetailProps) {
   const [settingsGrade, setSettingsGrade] = useState('');
   const [settingsCourse, setSettingsCourse] = useState('');
   const [settingsSaved, setSettingsSaved] = useState(false);
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
 
   const loadClass = async () => {
     try {
@@ -299,6 +304,28 @@ export function ClassDetail({ classId, teacher, onBack }: ClassDetailProps) {
                 </button>
                 <button
                   type="button"
+                  onClick={() => setActiveTab('attendance')}
+                  className={`py-3 px-3 border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+                    activeTab === 'attendance'
+                      ? 'border-indigo-600 text-indigo-600'
+                      : 'border-transparent text-slate-500 hover:text-slate-900'
+                  }`}
+                >
+                  Assiduidade
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('summaries')}
+                  className={`py-3 px-3 border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+                    activeTab === 'summaries'
+                      ? 'border-indigo-600 text-indigo-600'
+                      : 'border-transparent text-slate-500 hover:text-slate-900'
+                  }`}
+                >
+                  Sumários
+                </button>
+                <button
+                  type="button"
                   onClick={() => setActiveTab('pautas')}
                   className={`py-3 px-3 border-b-2 transition-all cursor-pointer whitespace-nowrap ${
                     activeTab === 'pautas'
@@ -366,6 +393,28 @@ export function ClassDetail({ classId, teacher, onBack }: ClassDetailProps) {
                   }`}
                 >
                   Avaliações
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('attendance')}
+                  className={`py-3 px-3 border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+                    activeTab === 'attendance'
+                      ? 'border-indigo-600 text-indigo-600'
+                      : 'border-transparent text-slate-500 hover:text-slate-900'
+                  }`}
+                >
+                  Assiduidade
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('summaries')}
+                  className={`py-3 px-3 border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+                    activeTab === 'summaries'
+                      ? 'border-indigo-600 text-indigo-600'
+                      : 'border-transparent text-slate-500 hover:text-slate-900'
+                  }`}
+                >
+                  Sumários
                 </button>
                 <button
                   type="button"
@@ -637,6 +686,29 @@ export function ClassDetail({ classId, teacher, onBack }: ClassDetailProps) {
           </div>
         )}
 
+        {/* TAB: ASSIDUIDADE */}
+        {activeTab === 'attendance' && (
+          <AttendanceView
+            classId={classId}
+            className={cls.name}
+            gradeLevel={cls.grade_level}
+            courseName={cls.course_name}
+            teacher={teacher}
+            students={students}
+          />
+        )}
+
+        {/* TAB: SUMÁRIOS */}
+        {activeTab === 'summaries' && (
+          <LessonSummariesView
+            classId={classId}
+            className={cls.name}
+            gradeLevel={cls.grade_level}
+            courseName={cls.course_name}
+            teacher={teacher}
+          />
+        )}
+
         {/* TAB: PAUTAS */}
         {activeTab === 'pautas' && (
           <PautasExportView
@@ -718,6 +790,22 @@ export function ClassDetail({ classId, teacher, onBack }: ClassDetailProps) {
                 </button>
               </div>
             </form>
+
+            {/* Cópia de Segurança */}
+            <div className="pt-5 border-t border-slate-100 flex items-center justify-between">
+              <div>
+                <h4 className="text-xs font-bold text-slate-900">Cópia de Segurança dos Dados</h4>
+                <p className="text-[11px] text-slate-500">Exporte todas as turmas, avaliações, sumários e assiduidade em JSON.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsBackupModalOpen(true)}
+                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors cursor-pointer inline-flex items-center gap-1.5"
+              >
+                <Download className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Exportar Backup</span>
+              </button>
+            </div>
           </div>
         )}
       </main>
@@ -865,6 +953,12 @@ export function ClassDetail({ classId, teacher, onBack }: ClassDetailProps) {
           </div>
         </div>
       )}
+
+      {/* Modal: Backup */}
+      <BackupModal
+        isOpen={isBackupModalOpen}
+        onClose={() => setIsBackupModalOpen(false)}
+      />
 
       {/* Plataforma Footer */}
       <Footer />

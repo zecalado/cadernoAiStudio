@@ -217,6 +217,38 @@ export function initDatabase() {
       updated_at TEXT NOT NULL,
       UNIQUE (rubric_id, enrollment_id, context_id)
     );
+
+    CREATE TABLE IF NOT EXISTS lesson_summaries (
+      id TEXT PRIMARY KEY,
+      teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+      class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+      lesson_number INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary_text TEXT NOT NULL,
+      module_or_domain TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS attendance_sessions (
+      id TEXT PRIMARY KEY,
+      teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+      class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+      date TEXT NOT NULL,
+      lesson_number INTEGER NOT NULL,
+      duration_blocks INTEGER DEFAULT 1,
+      summary_id TEXT REFERENCES lesson_summaries(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS attendance_records (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES attendance_sessions(id) ON DELETE CASCADE,
+      enrollment_id TEXT NOT NULL REFERENCES enrollments(id) ON DELETE CASCADE,
+      status TEXT NOT NULL,
+      notes TEXT,
+      UNIQUE(session_id, enrollment_id)
+    );
   `);
 }
 

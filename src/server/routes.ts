@@ -2042,3 +2042,336 @@ router.post('/rubrics/:id/evaluations', authMiddleware, (req: Request, res: Resp
   res.json({ success: true });
 });
 
+// -----------------------------------------------------------------------------
+// ATTENDANCE & FALTAS
+// -----------------------------------------------------------------------------
+
+router.get('/classes/:id/attendance', authMiddleware, (req: Request, res: Response) => {
+  const teacherId = (req as any).teacherId;
+  const classId = req.params.id;
+
+  const cls = db.prepare('SELECT * FROM classes WHERE id = ? AND teacher_id = ?').get(classId, teacherId) as any;
+  if (!cls) return res.status(404).json({ error: 'Turma não encontrada.' });
+
+  const sessions = db.prepare(`
+    SELECT s.*, ls.title as summary_title 
+    FROM attendance_sessions s
+    LEFT JOIN lesson_summaries ls ON s.summary_id = ls.id
+    WHERE s.class_id = ? AND s.teacher_id = ?
+    ORDER BY s.date DESC, s.lesson_number DESC
+  `).all(classId, teacherId) as any[];
+
+  const sessionIds = sessions.map(s => s.id);
+  let allRecords: any[] = [];
+  if (sessionIds.length > 0) {
+    const placeholders = sessionIds.map(() => '?').join(',');
+    allRecords = db.prepare(`
+      SELECT * FROM attendance_records WHERE session_id IN (${placeholders})
+    `).all(...sessionIds) as any[];
+  }
+
+  // Group records by session
+  const sessionsWithRecords = sessions.map(s => ({
+    ...s,
+    records: allRecords.filter(r => r.session_id === s.id),
+  }));
+
+  // Fetch enrolled students
+  const enrollments = db.prepare(`
+    SELECT e.id as enrollment_id, e.status, s.student_number, s.full_name
+    FROM enrollments e
+    JOIN students s ON e.student_id = s.id
+    WHERE e.class_id = ?
+    ORDER BY s.student_number ASC
+  `).all(classId) as any[];
+
+  const totalSessionsCount = sessions.length;
+
+  // Compute student attendance summary
+  const studentSummaries = enrollments.map(en => {
+    const studentRecords = allRecords.filter(r => r.enrollment_id === en.enrollment_id);
+    const presentCount = studentRecords.filter(r => r.status === 'present').length;
+    const justifiedCount = studentRecords.filter(r => r.status === 'justified').length;
+    const unjustifiedCount = studentRecords.filter(r => r.status === 'unjustified').length;
+    const lateCount = studentRecords.filter(r => r.status === 'late').length;
+    const materialMissingCount = studentRecords.filter(r => r.status === 'material_missing').length;
+
+    // Attendance percentage: (present + late) / total sessions recorded
+    const attended = presentCount + lateCount;
+    const attendancePercentage = totalSessionsCount > 0 
+      ? Math.round((attended / totalSessionsCount) * 100) 
+      : 100;
+
+    // Portuguese statutory limits: Warning if unjustified >= 3, Exceeded if unjustified >= 5 or attendance < 75%
+    const isWarning = unjustifiedCount >= 3 || (totalSessionsCount >= 5 && attendancePercentage < 85);
+    const isLimitExceeded = unjustifiedCount >= 5 || (totalSessionsCount >= 5 && attendancePercentage < 75);
+
+    return {
+      enrollment_id: en.enrollment_id,
+      student_number: en.student_number,
+      student_name: en.full_name,
+      status: en.status,
+      total_sessions: totalSessionsCount,
+      present_count: presentCount,
+      justified_count: justifiedCount,
+      unjustified_count: unjustifiedCount,
+      late_count: lateCount,
+      material_missing_count: materialMissingCount,
+      attendance_percentage: attendancePercentage,
+      is_limit_exceeded: isLimitExceeded,
+      is_warning: isWarning,
+    };
+  });
+
+  res.json({
+    sessions: sessionsWithRecords,
+    studentSummaries,
+    totalSessions: totalSessionsCount,
+  });
+});
+
+router.post('/classes/:id/attendance', authMiddleware, (req: Request, res: Response) => {
+  const teacherId = (req as any).teacherId;
+  const classId = req.params.id;
+  const { sessionId, date, lessonNumber, durationBlocks, summaryId, records } = req.body;
+
+  if (!date || lessonNumber === undefined || !Array.isArray(records)) {
+    return res.status(400).json({ error: 'Dados da sessão de assiduidade incompletos.' });
+  }
+
+  const cls = db.prepare('SELECT id FROM classes WHERE id = ? AND teacher_id = ?').get(classId, teacherId);
+  if (!cls) return res.status(404).json({ error: 'Turma não encontrada.' });
+
+  const now = new Date().toISOString();
+  let targetSessionId = sessionId;
+
+  db.transaction(() => {
+    if (!targetSessionId) {
+      targetSessionId = generateId();
+      db.prepare(`
+        INSERT INTO attendance_sessions (id, teacher_id, class_id, date, lesson_number, duration_blocks, summary_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(targetSessionId, teacherId, classId, date, lessonNumber, durationBlocks || 1, summaryId || null, now);
+    } else {
+      db.prepare(`
+        UPDATE attendance_sessions 
+        SET date = ?, lesson_number = ?, duration_blocks = ?, summary_id = ?
+        WHERE id = ? AND teacher_id = ?
+      `).run(date, lessonNumber, durationBlocks || 1, summaryId || null, targetSessionId, teacherId);
+    }
+
+    // Upsert individual records
+    for (const rec of records) {
+      if (!rec.enrollmentId || !rec.status) continue;
+      const existing = db.prepare(`
+        SELECT id FROM attendance_records WHERE session_id = ? AND enrollment_id = ?
+      `).get(targetSessionId, rec.enrollmentId) as any;
+
+      if (existing) {
+        db.prepare(`
+          UPDATE attendance_records SET status = ?, notes = ? WHERE id = ?
+        `).run(rec.status, rec.notes || null, existing.id);
+      } else {
+        db.prepare(`
+          INSERT INTO attendance_records (id, session_id, enrollment_id, status, notes)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(generateId(), targetSessionId, rec.enrollmentId, rec.status, rec.notes || null);
+      }
+    }
+  })();
+
+  res.json({ success: true, sessionId: targetSessionId });
+});
+
+router.delete('/attendance-sessions/:id', authMiddleware, (req: Request, res: Response) => {
+  const teacherId = (req as any).teacherId;
+  const sessionId = req.params.id;
+
+  const result = db.prepare('DELETE FROM attendance_sessions WHERE id = ? AND teacher_id = ?').run(sessionId, teacherId);
+  if (result.changes === 0) return res.status(404).json({ error: 'Sessão de assiduidade não encontrada.' });
+
+  res.json({ success: true });
+});
+
+// -----------------------------------------------------------------------------
+// LESSON SUMMARIES (SUMÁRIOS)
+// -----------------------------------------------------------------------------
+
+router.get('/classes/:id/summaries', authMiddleware, (req: Request, res: Response) => {
+  const teacherId = (req as any).teacherId;
+  const classId = req.params.id;
+
+  const summaries = db.prepare(`
+    SELECT * FROM lesson_summaries 
+    WHERE class_id = ? AND teacher_id = ?
+    ORDER BY lesson_number ASC, date ASC
+  `).all(classId, teacherId);
+
+  res.json({ summaries });
+});
+
+router.post('/classes/:id/summaries', authMiddleware, (req: Request, res: Response) => {
+  const teacherId = (req as any).teacherId;
+  const classId = req.params.id;
+  const { lessonNumber, date, title, summaryText, moduleOrDomain } = req.body;
+
+  if (!lessonNumber || !date || !title || !summaryText) {
+    return res.status(400).json({ error: 'Por favor preencha todos os campos obrigatórios do sumário.' });
+  }
+
+  const id = generateId();
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    INSERT INTO lesson_summaries (id, teacher_id, class_id, lesson_number, date, title, summary_text, module_or_domain, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, teacherId, classId, lessonNumber, date, title.trim(), summaryText.trim(), moduleOrDomain ? moduleOrDomain.trim() : null, now);
+
+  const created = db.prepare('SELECT * FROM lesson_summaries WHERE id = ?').get(id);
+  res.json({ success: true, summary: created });
+});
+
+router.put('/summaries/:id', authMiddleware, (req: Request, res: Response) => {
+  const teacherId = (req as any).teacherId;
+  const summaryId = req.params.id;
+  const { lessonNumber, date, title, summaryText, moduleOrDomain } = req.body;
+
+  const result = db.prepare(`
+    UPDATE lesson_summaries 
+    SET lesson_number = ?, date = ?, title = ?, summary_text = ?, module_or_domain = ?
+    WHERE id = ? AND teacher_id = ?
+  `).run(lessonNumber, date, title?.trim(), summaryText?.trim(), moduleOrDomain ? moduleOrDomain.trim() : null, summaryId, teacherId);
+
+  if (result.changes === 0) return res.status(404).json({ error: 'Sumário não encontrado.' });
+
+  const updated = db.prepare('SELECT * FROM lesson_summaries WHERE id = ?').get(summaryId);
+  res.json({ success: true, summary: updated });
+});
+
+router.delete('/summaries/:id', authMiddleware, (req: Request, res: Response) => {
+  const teacherId = (req as any).teacherId;
+  const summaryId = req.params.id;
+
+  const result = db.prepare('DELETE FROM lesson_summaries WHERE id = ? AND teacher_id = ?').run(summaryId, teacherId);
+  if (result.changes === 0) return res.status(404).json({ error: 'Sumário não encontrado.' });
+
+  res.json({ success: true });
+});
+
+// -----------------------------------------------------------------------------
+// BACKUP & RESTAURAÇÃO
+// -----------------------------------------------------------------------------
+
+router.get('/backup/export', authMiddleware, (req: Request, res: Response) => {
+  const teacherId = (req as any).teacherId;
+  const teacher = db.prepare('SELECT id, name, email, school, created_at FROM teachers WHERE id = ?').get(teacherId) as any;
+  if (!teacher) return res.status(404).json({ error: 'Professor não encontrado.' });
+
+  const academicYears = db.prepare('SELECT * FROM academic_years WHERE teacher_id = ?').all(teacherId);
+  const classes = db.prepare('SELECT * FROM classes WHERE teacher_id = ?').all(teacherId) as any[];
+  const classIds = classes.map(c => c.id);
+
+  let regularSubjects: any[] = [];
+  let professionalUcs: any[] = [];
+  let professionalModules: any[] = [];
+  let enrollments: any[] = [];
+  let students: any[] = [];
+  let instruments: any[] = [];
+  let instrumentResults: any[] = [];
+  let finalGrades: any[] = [];
+  let recoveries: any[] = [];
+  let pedagogicalComments: any[] = [];
+  let studentAccommodations: any[] = [];
+  let classroomNotes: any[] = [];
+  let observationRubrics: any[] = [];
+  let rubricCriteria: any[] = [];
+  let studentRubricEvaluations: any[] = [];
+  let lessonSummaries: any[] = [];
+  let attendanceSessions: any[] = [];
+  let attendanceRecords: any[] = [];
+
+  if (classIds.length > 0) {
+    const placeholders = classIds.map(() => '?').join(',');
+    regularSubjects = db.prepare(`SELECT * FROM regular_subjects WHERE class_id IN (${placeholders})`).all(...classIds);
+    professionalUcs = db.prepare(`SELECT * FROM professional_ucs WHERE class_id IN (${placeholders})`).all(...classIds);
+    enrollments = db.prepare(`SELECT * FROM enrollments WHERE class_id IN (${placeholders})`).all(...classIds);
+    studentAccommodations = db.prepare(`SELECT * FROM student_accommodations WHERE enrollment_id IN (SELECT id FROM enrollments WHERE class_id IN (${placeholders}))`).all(...classIds);
+    classroomNotes = db.prepare(`SELECT * FROM classroom_notes WHERE class_id IN (${placeholders})`).all(...classIds);
+    observationRubrics = db.prepare(`SELECT * FROM observation_rubrics WHERE class_id IN (${placeholders})`).all(...classIds);
+    lessonSummaries = db.prepare(`SELECT * FROM lesson_summaries WHERE class_id IN (${placeholders})`).all(...classIds);
+    attendanceSessions = db.prepare(`SELECT * FROM attendance_sessions WHERE class_id IN (${placeholders})`).all(...classIds);
+
+    const ucIds = professionalUcs.map(u => u.id);
+    if (ucIds.length > 0) {
+      const ucPlaceholders = ucIds.map(() => '?').join(',');
+      professionalModules = db.prepare(`SELECT * FROM professional_modules WHERE uc_id IN (${ucPlaceholders})`).all(...ucIds);
+    }
+
+    const studentIds = enrollments.map(e => e.student_id);
+    if (studentIds.length > 0) {
+      const stPlaceholders = studentIds.map(() => '?').join(',');
+      students = db.prepare(`SELECT * FROM students WHERE id IN (${stPlaceholders})`).all(...studentIds);
+    }
+
+    const enrollmentIds = enrollments.map(e => e.id);
+    if (enrollmentIds.length > 0) {
+      const enPlaceholders = enrollmentIds.map(() => '?').join(',');
+      finalGrades = db.prepare(`SELECT * FROM final_grades WHERE enrollment_id IN (${enPlaceholders})`).all(...enrollmentIds);
+      recoveries = db.prepare(`SELECT * FROM recoveries WHERE enrollment_id IN (${enPlaceholders})`).all(...enrollmentIds);
+      pedagogicalComments = db.prepare(`SELECT * FROM pedagogical_comments WHERE enrollment_id IN (${enPlaceholders})`).all(...enrollmentIds);
+    }
+
+    const rubricIds = observationRubrics.map(r => r.id);
+    if (rubricIds.length > 0) {
+      const rPlaceholders = rubricIds.map(() => '?').join(',');
+      rubricCriteria = db.prepare(`SELECT * FROM rubric_criteria WHERE rubric_id IN (${rPlaceholders})`).all(...rubricIds);
+      studentRubricEvaluations = db.prepare(`SELECT * FROM student_rubric_evaluations WHERE rubric_id IN (${rPlaceholders})`).all(...rubricIds);
+    }
+
+    const sessionIds = attendanceSessions.map(s => s.id);
+    if (sessionIds.length > 0) {
+      const sPlaceholders = sessionIds.map(() => '?').join(',');
+      attendanceRecords = db.prepare(`SELECT * FROM attendance_records WHERE session_id IN (${sPlaceholders})`).all(...sessionIds);
+    }
+
+    instruments = db.prepare(`SELECT * FROM evaluation_instruments WHERE regular_subject_id IN (SELECT id FROM regular_subjects WHERE class_id IN (${placeholders})) OR module_id IN (SELECT id FROM professional_modules WHERE uc_id IN (SELECT id FROM professional_ucs WHERE class_id IN (${placeholders})))`).all(...classIds, ...classIds);
+    if (instruments.length > 0) {
+      const instIds = instruments.map(i => i.id);
+      const instPlaceholders = instIds.map(() => '?').join(',');
+      instrumentResults = db.prepare(`SELECT * FROM instrument_results WHERE instrument_id IN (${instPlaceholders})`).all(...instIds);
+    }
+  }
+
+  res.json({
+    format: 'caderno_letivo_backup',
+    version: '2.0',
+    exportedAt: new Date().toISOString(),
+    teacher: {
+      name: teacher.name,
+      email: teacher.email,
+      school: teacher.school,
+    },
+    data: {
+      academicYears,
+      classes,
+      regularSubjects,
+      professionalUcs,
+      professionalModules,
+      students,
+      enrollments,
+      instruments,
+      instrumentResults,
+      finalGrades,
+      recoveries,
+      pedagogicalComments,
+      studentAccommodations,
+      classroomNotes,
+      observationRubrics,
+      rubricCriteria,
+      studentRubricEvaluations,
+      lessonSummaries,
+      attendanceSessions,
+      attendanceRecords,
+    },
+  });
+});
