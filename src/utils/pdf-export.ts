@@ -159,7 +159,7 @@ export function generatePautaPdf(options: PautaPdfOptions): jsPDF {
     doc.line(14, pageHeight - 15, pageWidth - 14, pageHeight - 15);
 
     doc.setFontSize(8);
-    doc.text(`Emitido em ${dateFormatted}`, 14, pageHeight - 6);
+    doc.text(`Caderno Letivo • AEGP • Desenvolvido por José Calado • Emitido em ${dateFormatted}`, 14, pageHeight - 6);
     doc.text(`Página ${i} de ${totalPages}`, pageWidth - 14, pageHeight - 6, { align: 'right' });
   }
 
@@ -424,7 +424,7 @@ export function generateStudentProgressReportPdf(options: StudentProgressReportO
   // Bottom timestamp & page
   doc.setFontSize(7.5);
   doc.setTextColor(148, 163, 184);
-  doc.text(`Documento emitido em ${dateFormatted} via Caderno Letivo`, 14, pageHeight - 8);
+  doc.text(`Caderno Letivo • AEGP • Desenvolvido por José Calado • Emitido em ${dateFormatted}`, 14, pageHeight - 8);
   doc.text('Documento informativo de acompanhamento pedagógico', pageWidth - 14, pageHeight - 8, { align: 'right' });
 
   return doc;

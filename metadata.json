@@ -1,6 +1,6 @@
 {
   "name": "Caderno Letivo",
-  "description": "Aplicação pessoal para professores gerirem turmas, alunos, avaliações de TIC e ensino profissional, e exportação de pautas em PDF.",
+  "description": "Plataforma de gestão pedagógica do Agrupamento de Escolas Gabriel Pereira. Desenvolvido por José Calado.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

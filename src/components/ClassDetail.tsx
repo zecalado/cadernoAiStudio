@@ -13,6 +13,7 @@ import { EvaluationRegular } from './EvaluationRegular';
 import { EvaluationProfessional } from './EvaluationProfessional';
 import { StudentsManagement } from './StudentsManagement';
 import { PautasExportView } from './PautasExportView';
+import { Footer } from './Footer';
 import {
   ArrowLeft,
   BookOpen,
@@ -242,12 +243,18 @@ export function ClassDetail({ classId, teacher, onBack }: ClassDetailProps) {
             </div>
           </div>
 
-          {/* Quick info */}
-          <div className="flex items-center gap-4 text-xs font-semibold text-slate-600">
+          {/* Quick info & School Logo */}
+          <div className="flex items-center gap-3 text-xs font-semibold text-slate-600">
             <div className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-lg">
               <Users className="w-4 h-4 text-slate-400" />
               <span>{students.length} alunos</span>
             </div>
+            <div className="h-6 w-px bg-slate-200 hidden sm:block" />
+            <img
+              src="/assets/aistudio/AEGP_c929fad4.png"
+              alt="AEGP - Agrupamento de Escolas Gabriel Pereira"
+              className="h-8 w-auto object-contain hidden sm:block"
+            />
           </div>
         </div>
 
@@ -858,6 +865,9 @@ export function ClassDetail({ classId, teacher, onBack }: ClassDetailProps) {
           </div>
         </div>
       )}
+
+      {/* Plataforma Footer */}
+      <Footer />
     </div>
   );
 }

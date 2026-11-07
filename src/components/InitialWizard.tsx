@@ -286,14 +286,18 @@ export function InitialWizard({ initialTeacher, onComplete }: InitialWizardProps
       <div className="max-w-4xl mx-auto">
         {/* Wizard Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center p-2 rounded-xl bg-indigo-50 text-indigo-700 mb-2">
-            <GraduationCap className="w-6 h-6" />
+          <div className="inline-flex items-center justify-center p-2.5 rounded-2xl bg-white shadow-md border border-slate-200 mb-3">
+            <img
+              src="/assets/aistudio/AEGP_c929fad4.png"
+              alt="AEGP - Agrupamento de Escolas Gabriel Pereira"
+              className="h-10 w-auto object-contain"
+            />
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900">
             Assistente de Configuração Inicial
           </h1>
           <p className="text-slate-500 text-sm mt-1">
-            Configure o seu ano letivo, as suas turmas e os alunos em 4 passos simples.
+            Agrupamento de Escolas Gabriel Pereira — Évora • Caderno Letivo
           </p>
         </div>
 
@@ -376,7 +380,7 @@ export function InitialWizard({ initialTeacher, onComplete }: InitialWizardProps
                     type="text"
                     value={school}
                     onChange={(e) => setSchool(e.target.value)}
-                    placeholder="Ex: Agrupamento de Escolas D. Dinis"
+                    placeholder="Ex: Agrupamento de Escolas Gabriel Pereira - Évora"
                     className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
                   />
                   <p className="text-[11px] text-slate-400 mt-1">

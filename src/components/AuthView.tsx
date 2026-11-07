@@ -185,12 +185,16 @@ export function AuthView({ isInitialized, onLoginSuccess }: AuthViewProps) {
       <div className="max-w-md w-full">
         {/* Brand Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-indigo-600 shadow-xl shadow-indigo-600/30 text-white mb-4">
-            <GraduationCap className="w-8 h-8" />
+          <div className="inline-flex items-center justify-center px-4 py-2.5 rounded-2xl bg-white shadow-xl shadow-black/20 mb-4">
+            <img
+              src="/assets/aistudio/AEGP_c929fad4.png"
+              alt="AEGP - Agrupamento de Escolas Gabriel Pereira"
+              className="h-12 w-auto object-contain"
+            />
           </div>
           <h1 className="text-3xl font-extrabold text-white tracking-tight">Caderno Letivo</h1>
-          <p className="text-slate-400 mt-2 text-sm">
-            Gestão pessoal de turmas, alunos e avaliações pedagógicas
+          <p className="text-indigo-200 mt-1.5 text-sm font-medium">
+            Agrupamento de Escolas Gabriel Pereira — Évora
           </p>
         </div>
 
@@ -244,7 +248,7 @@ export function AuthView({ isInitialized, onLoginSuccess }: AuthViewProps) {
                       type="text"
                       value={school}
                       onChange={(e) => setSchool(e.target.value)}
-                      placeholder="Ex: Agrupamento de Escolas D. Dinis"
+                      placeholder="Ex: Agrupamento de Escolas Gabriel Pereira - Évora"
                       className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
                     />
                   </div>
@@ -738,10 +742,16 @@ export function AuthView({ isInitialized, onLoginSuccess }: AuthViewProps) {
           </div>
         </div>
 
-        {/* Security and privacy guarantee */}
-        <p className="text-center text-slate-400 text-xs mt-6">
-          Privacidade e segurança: os dados residem na base de dados relacional e não são partilhados publicamente.
-        </p>
+        {/* Author / Developer attribution & Security */}
+        <div className="text-center text-xs mt-6 space-y-2">
+          <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-slate-800/90 border border-slate-700/80 text-slate-300 text-xs shadow-md">
+            <span>Desenvolvimento da Plataforma:</span>
+            <strong className="text-white font-bold">José Calado</strong>
+          </div>
+          <p className="text-slate-400 text-[11px]">
+            Privacidade e segurança: os dados residem na base de dados relacional e não são partilhados publicamente.
+          </p>
+        </div>
       </div>
     </div>
   );

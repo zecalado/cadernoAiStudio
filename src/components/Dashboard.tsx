@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiRequest, clearStoredToken } from '../api/client';
 import { Teacher, AcademicYear, ClassItem, EducationType, GradeScale, TeacherInvitation } from '../types';
+import { Footer } from './Footer';
 import {
   GraduationCap,
   Calendar,
@@ -222,21 +223,24 @@ export function Dashboard({ teacher, onSelectClass, onLogout }: DashboardProps) 
       {/* Top Navigation Bar */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/20">
-              <GraduationCap className="w-5 h-5" />
-            </div>
+          <div className="flex items-center gap-3.5">
+            <img
+              src="/assets/aistudio/AEGP_c929fad4.png"
+              alt="AEGP - Agrupamento de Escolas Gabriel Pereira"
+              className="h-10 w-auto max-w-[160px] sm:max-w-none object-contain"
+            />
+            <div className="h-8 w-px bg-slate-200 hidden sm:block" />
             <div>
-              <h1 className="text-base font-extrabold text-slate-900 leading-tight">Caderno Letivo</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-extrabold text-slate-900 leading-tight">Caderno Letivo</h1>
+                <span className="hidden md:inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/80">
+                  AEGP
+                </span>
+              </div>
               <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1.5">
-                {teacher.school ? (
-                  <>
-                    <School className="w-3 h-3 text-slate-400" />
-                    <span>{teacher.school}</span>
-                    <span>•</span>
-                  </>
-                ) : null}
-                <span>{teacher.name}</span>
+                <span>{teacher.school || 'Agrupamento de Escolas Gabriel Pereira - Évora'}</span>
+                <span>•</span>
+                <span className="font-semibold text-slate-700">{teacher.name}</span>
               </p>
             </div>
           </div>
@@ -850,6 +854,9 @@ export function Dashboard({ teacher, onSelectClass, onLogout }: DashboardProps) 
           </div>
         </div>
       )}
+
+      {/* Plataforma Footer */}
+      <Footer />
     </div>
   );
 }

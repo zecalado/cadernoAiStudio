@@ -1665,7 +1665,7 @@ router.post('/demo/seed', (req: Request, res: Response) => {
       const hash = bcrypt.hashSync('professor123', 10);
       db.prepare(`
         INSERT INTO teachers (id, email, password_hash, name, school, created_at)
-        VALUES (?, 'professor@escola.pt', ?, 'Prof. Manuel Silva', 'Agrupamento de Escolas D. Dinis', ?)
+        VALUES (?, 'professor@escola.pt', ?, 'Prof. Manuel Silva', 'Agrupamento de Escolas Gabriel Pereira - Évora', ?)
       `).run(teacherId, hash, now);
     } else {
       teacherId = teacher.id;
